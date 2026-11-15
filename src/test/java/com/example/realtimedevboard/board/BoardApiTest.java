@@ -109,26 +109,41 @@ class BoardApiTest {
         TestSession.Socket adamSocket = adam.connect(alphaBoard, null);
 
         var created = alice.send("POST", "/api/boards/" + alphaBoard + "/elements",
-                "{\"type\":\"SHAPE\",\"x\":10,\"y\":20,\"width\":120,\"height\":80,\"content\":\"RECT\"}");
+                "{\"type\":\"SHAPE\",\"x\":10,\"y\":20,\"width\":120,\"height\":80,\"content\":\"\",\"shape\":\"RECT\"}");
         assertThat(created.statusCode()).isEqualTo(201);
         String id = created.body().replaceAll(".*\"id\":(\\d+).*", "$1");
-        assertThat(adamSocket.messages.poll(5, TimeUnit.SECONDS)).contains("\"upsert\"", "\"RECT\"", "\"SHAPE\"");
+        assertThat(adamSocket.messages.poll(5, TimeUnit.SECONDS)).contains("\"upsert\"", "\"shape\":\"RECT\"", "\"SHAPE\"");
 
-        // move + resize + change kind
+        // move + resize + change kind + label inside the shape
         alice.send("PUT", "/api/boards/" + alphaBoard + "/elements/" + id,
-                "{\"type\":\"SHAPE\",\"x\":300,\"y\":20,\"width\":250,\"height\":180,\"content\":\"CIRCLE\"}");
-        assertThat(adamSocket.messages.poll(5, TimeUnit.SECONDS)).contains("\"x\":300", "\"width\":250", "CIRCLE");
+                "{\"type\":\"SHAPE\",\"x\":300,\"y\":20,\"width\":250,\"height\":180,\"content\":\"API\",\"shape\":\"CIRCLE\"}");
+        assertThat(adamSocket.messages.poll(5, TimeUnit.SECONDS))
+                .contains("\"x\":300", "\"width\":250", "\"shape\":\"CIRCLE\"", "\"content\":\"API\"");
         // persisted: a fresh load (page refresh) sees the change
-        assertThat(adam.send("GET", "/api/boards/" + alphaBoard, null).body()).contains("\"width\":250", "CIRCLE");
+        assertThat(adam.send("GET", "/api/boards/" + alphaBoard, null).body()).contains("\"width\":250", "\"content\":\"API\"");
 
-        // a shape carries no free text
+        // shape kind is validated
         assertThat(alice.send("PUT", "/api/boards/" + alphaBoard + "/elements/" + id,
-                "{\"type\":\"SHAPE\",\"x\":1,\"y\":1,\"width\":100,\"height\":50,\"content\":\"hello\"}").statusCode()).isEqualTo(400);
+                "{\"type\":\"SHAPE\",\"x\":1,\"y\":1,\"width\":100,\"height\":50,\"shape\":\"STAR\"}").statusCode()).isEqualTo(400);
         assertThat(alice.send("POST", "/api/boards/" + alphaBoard + "/elements",
                 "{\"type\":\"SHAPE\",\"x\":1,\"y\":1,\"width\":100,\"height\":50}").statusCode()).isEqualTo(400);
 
         assertThat(alice.send("DELETE", "/api/boards/" + alphaBoard + "/elements/" + id, null).statusCode()).isEqualTo(204);
         assertThat(adamSocket.messages.poll(5, TimeUnit.SECONDS)).contains("\"delete\"", "\"id\":" + id);
+
+        // arrow: start point (x, y) and end point (endX, endY)
+        var arrow = alice.send("POST", "/api/boards/" + alphaBoard + "/elements",
+                "{\"type\":\"ARROW\",\"x\":10,\"y\":10,\"width\":20,\"height\":20,\"endX\":200,\"endY\":90}");
+        assertThat(arrow.statusCode()).isEqualTo(201);
+        String arrowId = arrow.body().replaceAll(".*\"id\":(\\d+).*", "$1");
+        assertThat(adamSocket.messages.poll(5, TimeUnit.SECONDS)).contains("\"ARROW\"", "\"endX\":200", "\"endY\":90");
+        alice.send("PUT", "/api/boards/" + alphaBoard + "/elements/" + arrowId,
+                "{\"type\":\"ARROW\",\"x\":10,\"y\":10,\"width\":20,\"height\":20,\"endX\":400,\"endY\":5}");
+        assertThat(adamSocket.messages.poll(5, TimeUnit.SECONDS)).contains("\"endX\":400", "\"endY\":5");
+        assertThat(alice.send("POST", "/api/boards/" + alphaBoard + "/elements",
+                "{\"type\":\"ARROW\",\"x\":10,\"y\":10,\"width\":20,\"height\":20}").statusCode()).isEqualTo(400);
+        assertThat(alice.send("POST", "/api/boards/" + alphaBoard + "/elements",
+                "{\"type\":\"ARROW\",\"x\":10,\"y\":10,\"width\":20,\"height\":20,\"endX\":-1,\"endY\":5}").statusCode()).isEqualTo(400);
     }
 
     @Test

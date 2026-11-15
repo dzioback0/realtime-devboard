@@ -34,8 +34,17 @@ public class BoardElement {
     private int width;
     private int height;
 
+    /** Text, code, or the label inside a shape. */
     @Column(length = MAX_CONTENT)
     private String content;
+
+    /** SHAPE only: RECT or CIRCLE. */
+    @Column(length = 10)
+    private String shape;
+
+    /** ARROW only: the arrow goes from (x, y) to (endX, endY); width/height are unused. */
+    private Integer endX;
+    private Integer endY;
 
     @Enumerated(EnumType.STRING)
     private ExecutionStatus runStatus;
@@ -54,15 +63,18 @@ public class BoardElement {
     public BoardElement(Board board, ElementType type, int x, int y, int width, int height, String content) {
         this.board = board;
         this.type = type;
-        update(x, y, width, height, content);
+        update(x, y, width, height, content, null, null, null);
     }
 
-    void update(int x, int y, int width, int height, String content) {
+    void update(int x, int y, int width, int height, String content, String shape, Integer endX, Integer endY) {
         this.x = x;
         this.y = y;
         this.width = width;
         this.height = height;
         this.content = content;
+        this.shape = shape;
+        this.endX = endX;
+        this.endY = endY;
     }
 
     void recordRun(ExecutionResult r) {
@@ -100,6 +112,18 @@ public class BoardElement {
 
     public String getContent() {
         return content;
+    }
+
+    public String getShape() {
+        return shape;
+    }
+
+    public Integer getEndX() {
+        return endX;
+    }
+
+    public Integer getEndY() {
+        return endY;
     }
 
     /** Null until the element has been run. */

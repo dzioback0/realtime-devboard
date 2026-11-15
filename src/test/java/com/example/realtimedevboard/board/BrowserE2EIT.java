@@ -85,14 +85,38 @@ class BrowserE2EIT {
         alice.findElement(By.cssSelector("[data-add=TEXT]")).click();
         waitFor(adam, 10).until(d -> d.findElements(By.cssSelector(".el")).size() == before + 1);
 
-        // a circle has no text field; resizing it by the corner handle reaches the other session
+        // resizing a text block by its corner handle reaches the other session
+        WebElement text = alice.findElements(By.cssSelector(".el.TEXT")).getLast();
+        int textWidth = text.getSize().getWidth();
+        new Actions(alice).dragAndDropBy(text.findElement(By.cssSelector(".resize")), 60, 30).perform();
+        String textId = text.getAttribute("data-id");
+        waitFor(adam, 10).until(d -> d.findElement(By.cssSelector(".el[data-id='" + textId + "']"))
+                .getSize().getWidth() == textWidth + 60);
+
+        // circle: resize by the corner handle, double-click to write a label inside
         alice.findElement(By.cssSelector("[data-add=SHAPE][data-shape=CIRCLE]")).click();
         WebElement circle = waitFor(alice, 10)
                 .until(ExpectedConditions.visibilityOfElementLocated(By.cssSelector(".el.SHAPE.CIRCLE")));
-        assertThat(circle.findElements(By.tagName("textarea"))).isEmpty();
         new Actions(alice).dragAndDropBy(circle.findElement(By.cssSelector(".resize")), 80, 40).perform();
         waitFor(adam, 10).until(d -> d.findElements(By.cssSelector(".el.SHAPE.CIRCLE")).stream()
                 .anyMatch(c -> c.getCssValue("width").equals("200px") && c.getCssValue("height").equals("160px")));
+        new Actions(alice).doubleClick(circle).sendKeys("API").perform();
+        waitFor(adam, 10).until(d -> d.findElements(By.cssSelector(".el.SHAPE.CIRCLE .label")).stream()
+                .anyMatch(l -> "API".equals(l.getDomProperty("value"))));
+
+        // arrow: drag its end point, the other session sees the new end
+        alice.findElement(By.cssSelector("[data-add=ARROW]")).click();
+        WebElement arrow = waitFor(alice, 10).until(d -> d.findElements(By.cssSelector(".el.ARROW")).stream().findFirst().orElse(null));
+        String arrowId = arrow.getAttribute("data-id");
+        By adamArrowLine = By.cssSelector(".el[data-id='" + arrowId + "'] line.line");
+        waitFor(adam, 10).until(ExpectedConditions.presenceOfElementLocated(adamArrowLine));
+        int x2Before = Integer.parseInt(adam.findElement(adamArrowLine).getAttribute("x2"));
+        int y2Before = Integer.parseInt(adam.findElement(adamArrowLine).getAttribute("y2"));
+        new Actions(alice).moveToElement(arrow.findElement(By.cssSelector(".handle.end")))
+                .clickAndHold().moveByOffset(0, 80).release().perform();
+        // dragging the end down by 80 px grows the arrow's box, so the end moves 80 px down inside it
+        waitFor(adam, 10).until(d -> Integer.parseInt(d.findElement(adamArrowLine).getAttribute("y2")) == y2Before + 80
+                && Integer.parseInt(d.findElement(adamArrowLine).getAttribute("x2")) == x2Before);
 
         // persisted: reload shows the stored result
         adam.navigate().refresh();

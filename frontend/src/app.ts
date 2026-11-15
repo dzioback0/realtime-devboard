@@ -1,6 +1,6 @@
 // Realtime DevBoard web client. All user content is rendered with textContent / value (never innerHTML).
 
-type ElementType = 'TEXT' | 'SHAPE' | 'CODE';
+type ElementType = 'TEXT' | 'SHAPE' | 'CODE' | 'ARROW';
 
 interface ExecutionResult {
     status: string;
@@ -19,6 +19,9 @@ interface BoardElement {
     width: number;
     height: number;
     content: string | null;
+    shape: string | null;
+    endX: number | null;
+    endY: number | null;
     lastRun: ExecutionResult | null;
 }
 
@@ -84,6 +87,10 @@ function render(el: BoardElement) {
         nodes.set(el.id, node);
         boardEl.append(node);
     }
+    if (el.type === 'ARROW') {
+        renderArrow(node, el);
+        return;
+    }
     Object.assign(node.style, {left: `${el.x}px`, top: `${el.y}px`, width: `${el.width}px`, height: `${el.height}px`});
     const text = node.querySelector('textarea');
     // Last write wins per element, but do not overwrite what the local user is typing right now.
@@ -91,7 +98,7 @@ function render(el: BoardElement) {
         text.value = el.content ?? '';
     }
     if (el.type === 'SHAPE') {
-        node.classList.toggle('CIRCLE', el.content === 'CIRCLE');
+        node.classList.toggle('CIRCLE', el.shape === 'CIRCLE');
     }
     if (el.type === 'CODE') {
         renderConsole(node, el.lastRun);
@@ -103,15 +110,22 @@ function createNode(el: BoardElement): HTMLElement {
     node.className = `el ${el.type}`;
     node.dataset.id = String(el.id);
 
+    if (el.type === 'ARROW') {
+        return createArrow(el, node);
+    }
     if (el.type === 'SHAPE') {
-        // A plain shape: the whole body moves it, the corner handle resizes it.
-        node.setAttribute('role', 'img');
-        node.setAttribute('aria-label', el.content === 'CIRCLE' ? 'Apskritimas' : 'Stačiakampis');
-        const resize = document.createElement('div');
-        resize.className = 'resize';
-        node.append(button('×', 'delete', () => remove(el.id), 'Pašalinti figūrą'), resize);
+        // Pressing the shape drags it; double-click (or Tab focus) edits the label inside.
+        node.setAttribute('role', 'group');
+        node.setAttribute('aria-label', el.shape === 'CIRCLE' ? 'Apskritimas' : 'Stačiakampis');
+        const label = document.createElement('textarea');
+        label.className = 'label';
+        label.setAttribute('aria-label', 'Figūros tekstas');
+        label.addEventListener('input', () => scheduleSave(el.id, {content: label.value}));
+        label.addEventListener('focus', () => label.classList.add('editing'));
+        label.addEventListener('blur', () => label.classList.remove('editing'));
+        node.addEventListener('dblclick', () => label.focus());
+        node.append(label, button('×', 'delete', () => remove(el.id), 'Pašalinti figūrą'), resizeHandle(el.id));
         enableDrag(node, el.id, 'move');
-        enableDrag(resize, el.id, 'resize');
         return node;
     }
 
@@ -146,7 +160,64 @@ function createNode(el: BoardElement): HTMLElement {
         console.setAttribute('aria-live', 'polite');
         node.append(console);
     }
+    node.append(resizeHandle(el.id));
     return node;
+}
+
+function resizeHandle(id: number): HTMLElement {
+    const handle = document.createElement('div');
+    handle.className = 'resize';
+    enableDrag(handle, id, 'resize');
+    return handle;
+}
+
+const SVG = 'http://www.w3.org/2000/svg';
+const ARROW_PAD = 12; // room around the line for the head and the end handles
+
+function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string>): SVGElementTagNameMap[K] {
+    const e = document.createElementNS(SVG, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    return e;
+}
+
+/** A free arrow from (x, y) to (endX, endY): drag the line to move it, drag an end to reshape it. */
+function createArrow(el: BoardElement, node: HTMLElement): HTMLElement {
+    node.setAttribute('role', 'img');
+    node.setAttribute('aria-label', 'Rodyklė');
+    const marker = svg('marker', {id: `head-${el.id}`, viewBox: '0 0 10 10', refX: '9', refY: '5',
+        markerWidth: '8', markerHeight: '8', orient: 'auto'});
+    marker.append(svg('path', {d: 'M0,0 L10,5 L0,10 z'}));
+    const defs = svg('defs', {});
+    defs.append(marker);
+    const line = svg('line', {class: 'line', 'marker-end': `url(#head-${el.id})`});
+    const hit = svg('line', {class: 'hit'});
+    const canvas = svg('svg', {});
+    canvas.append(defs, line, hit);
+    const start = document.createElement('div');
+    start.className = 'handle start';
+    const end = document.createElement('div');
+    end.className = 'handle end';
+    node.append(canvas, start, end, button('×', 'delete', () => remove(el.id), 'Pašalinti rodyklę'));
+    enableDrag(hit, el.id, 'move');
+    enableDrag(start, el.id, 'start');
+    enableDrag(end, el.id, 'end');
+    return node;
+}
+
+function renderArrow(node: HTMLElement, el: BoardElement) {
+    const x2 = el.endX ?? el.x, y2 = el.endY ?? el.y;
+    const left = Math.min(el.x, x2) - ARROW_PAD, top = Math.min(el.y, y2) - ARROW_PAD;
+    Object.assign(node.style, {left: `${left}px`, top: `${top}px`,
+        width: `${Math.abs(x2 - el.x) + 2 * ARROW_PAD}px`, height: `${Math.abs(y2 - el.y) + 2 * ARROW_PAD}px`});
+    const points = {x1: el.x - left, y1: el.y - top, x2: x2 - left, y2: y2 - top};
+    node.querySelectorAll('line').forEach(l => {
+        for (const [k, v] of Object.entries(points)) l.setAttribute(k, String(v));
+    });
+    const place = (selector: string, x: number, y: number) =>
+        Object.assign(node.querySelector<HTMLElement>(selector)!.style, {left: `${x}px`, top: `${y}px`});
+    place('.start', points.x1, points.y1);
+    place('.end', points.x2, points.y2);
+    place('.delete', (points.x1 + points.x2) / 2, (points.y1 + points.y2) / 2);
 }
 
 function button(label: string, className: string, onClick: () => void, ariaLabel?: string): HTMLButtonElement {
@@ -191,19 +262,26 @@ function renderConsole(node: HTMLElement, result: ExecutionResult | null | 'RUNN
 // Same bounds as the server-side validation (BoardController.ElementRequest).
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(v)));
 
-function enableDrag(handle: HTMLElement, id: number, mode: 'move' | 'resize') {
+function enableDrag(target: HTMLElement | SVGElement, id: number, mode: 'move' | 'resize' | 'start' | 'end') {
+    const handle = target as HTMLElement; // SVG elements have the same pointer-event API; TS cannot merge the union overloads
     handle.addEventListener('pointerdown', down => {
-        const target = down.target as HTMLElement;
-        if (target.closest('button') || (mode === 'move' && target.closest('.resize'))) return;
+        const target = down.target as Element;
+        if (target.closest('button, textarea.editing') || (mode === 'move' && target.closest('.resize'))) return;
         const el = elements.get(id)!;
-        const start = {x: el.x, y: el.y, width: el.width, height: el.height, cx: down.clientX, cy: down.clientY};
+        const start = {x: el.x, y: el.y, width: el.width, height: el.height,
+            endX: el.endX ?? 0, endY: el.endY ?? 0, cx: down.clientX, cy: down.clientY};
         handle.setPointerCapture(down.pointerId);
         const move = (e: PointerEvent) => {
             const dx = e.clientX - start.cx, dy = e.clientY - start.cy;
-            if (mode === 'move') {
+            if (mode === 'move' || mode === 'start') {
                 el.x = clamp(start.x + dx, 0, 10_000);
                 el.y = clamp(start.y + dy, 0, 10_000);
-            } else {
+            }
+            if ((mode === 'move' && el.type === 'ARROW') || mode === 'end') {
+                el.endX = clamp(start.endX + dx, 0, 10_000);
+                el.endY = clamp(start.endY + dy, 0, 10_000);
+            }
+            if (mode === 'resize') {
                 el.width = clamp(start.width + dx, 20, 4_000);
                 el.height = clamp(start.height + dy, 20, 4_000);
             }
@@ -230,8 +308,8 @@ async function save(id: number) {
     pendingSaves.delete(id);
     const el = elements.get(id);
     if (!el || !current) return;
-    const {type, x, y, width, height, content} = el;
-    await api('PUT', `/api/boards/${current.id}/elements/${id}`, {type, x, y, width, height, content});
+    const {type, x, y, width, height, content, shape, endX, endY} = el;
+    await api('PUT', `/api/boards/${current.id}/elements/${id}`, {type, x, y, width, height, content, shape, endX, endY});
 }
 
 async function add(type: ElementType, shape?: string) {
@@ -240,10 +318,13 @@ async function add(type: ElementType, shape?: string) {
         : shape === 'CIRCLE' ? {width: 120, height: 120} : {width: 200, height: 100};
     const content = type === 'CODE'
         ? 'public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello");\n    }\n}\n'
-        : type === 'SHAPE' ? shape : '';
+        : '';
     const offset = 20 * (elements.size % 10);
-    render(await api<BoardElement>('POST', `/api/boards/${current.id}/elements`,
-        {type, x: 60 + offset, y: 60 + offset, ...size, content}));
+    const x = 60 + offset, y = 60 + offset;
+    const body = type === 'ARROW'
+        ? {type, x, y, width: 20, height: 20, content, endX: x + 160, endY: y}
+        : {type, x, y, ...size, content, shape: type === 'SHAPE' ? shape : null};
+    render(await api<BoardElement>('POST', `/api/boards/${current.id}/elements`, body));
 }
 
 async function remove(id: number) {

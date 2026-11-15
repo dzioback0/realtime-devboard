@@ -69,7 +69,9 @@ public class BoardController {
     record ElementRequest(@NotNull ElementType type,
                           @Min(0) @Max(10_000) int x, @Min(0) @Max(10_000) int y,
                           @Min(20) @Max(4_000) int width, @Min(20) @Max(4_000) int height,
-                          @Size(max = BoardElement.MAX_CONTENT) String content) {
+                          @Size(max = BoardElement.MAX_CONTENT) String content,
+                          String shape,
+                          @Min(0) @Max(10_000) Integer endX, @Min(0) @Max(10_000) Integer endY) {
     }
 
     @GetMapping("/me")
@@ -109,8 +111,10 @@ public class BoardController {
     @Transactional
     BoardElement addElement(@PathVariable Long boardId, @Valid @RequestBody ElementRequest r, Principal user) {
         Board board = accessibleBoard(boardId, user);
-        requireValidShape(r.type(), r.content());
-        BoardElement element = elements.save(new BoardElement(board, r.type(), r.x(), r.y(), r.width(), r.height(), r.content()));
+        requireValidKindFields(r.type(), r);
+        BoardElement element = new BoardElement(board, r.type(), 0, 0, 20, 20, null);
+        apply(element, r);
+        elements.save(element);
         sockets.publish(boardId, Map.of("type", "upsert", "element", element));
         return element;
     }
@@ -120,8 +124,8 @@ public class BoardController {
     BoardElement updateElement(@PathVariable Long boardId, @PathVariable Long elementId,
                                @Valid @RequestBody ElementRequest r, Principal user) {
         BoardElement element = accessibleElement(boardId, elementId, user);
-        requireValidShape(element.getType(), r.content());
-        element.update(r.x(), r.y(), r.width(), r.height(), r.content());
+        requireValidKindFields(element.getType(), r);
+        apply(element, r);
         sockets.publish(boardId, Map.of("type", "upsert", "element", element));
         return element;
     }
@@ -151,12 +155,23 @@ public class BoardController {
         return result;
     }
 
-    /** A SHAPE stores its kind in content; no free text is allowed there. */
-    private static void requireValidShape(ElementType type, String content) {
+    /** A SHAPE needs a known kind, an ARROW needs its end point; other types ignore these fields. */
+    private static void requireValidKindFields(ElementType type, ElementRequest r) {
         // Set.of(...).contains(null) throws, hence the explicit null check
-        if (type == ElementType.SHAPE && (content == null || !SHAPE_KINDS.contains(content))) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Shape content must be one of " + SHAPE_KINDS);
+        if (type == ElementType.SHAPE && (r.shape() == null || !SHAPE_KINDS.contains(r.shape()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Shape must be one of " + SHAPE_KINDS);
         }
+        if (type == ElementType.ARROW && (r.endX() == null || r.endY() == null)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Arrow needs endX and endY");
+        }
+    }
+
+    private static void apply(BoardElement element, ElementRequest r) {
+        ElementType type = element.getType();
+        element.update(r.x(), r.y(), r.width(), r.height(), r.content(),
+                type == ElementType.SHAPE ? r.shape() : null,
+                type == ElementType.ARROW ? r.endX() : null,
+                type == ElementType.ARROW ? r.endY() : null);
     }
 
     private Board accessibleBoard(Long boardId, Principal user) {

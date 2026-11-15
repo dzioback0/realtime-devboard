@@ -31,3 +31,20 @@ button:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2p
 .console .status.FAILED { color: #f87171; }
 .console pre { margin: 2px 0; white-space: pre-wrap; word-break: break-word; }
 .console .stderr { color: #fca5a5; }
+
+/* Label inside a shape: ignores the pointer (so the shape drags) until focused by double-click or Tab */
+.el.SHAPE .label { position: absolute; left: 15%; top: 15%; width: 70%; height: 70%; flex: none; padding: 0;
+    text-align: center; overflow: hidden; pointer-events: none; }
+.el.SHAPE .label.editing { pointer-events: auto; cursor: text; outline: 1px dashed #d97706; }
+.el.TEXT .resize, .el.CODE .resize { right: 0; bottom: 0; border-color: #6b7280; }
+
+.el.ARROW { background: none; border: 0; box-shadow: none; overflow: visible; pointer-events: none; }
+.el.ARROW svg { width: 100%; height: 100%; overflow: visible; }
+.el.ARROW .line { stroke: #374151; stroke-width: 2; }
+.el.ARROW marker path { fill: #374151; }
+.el.ARROW .hit { stroke: transparent; stroke-width: 14; cursor: move; pointer-events: stroke; touch-action: none; }
+.el.ARROW .handle { position: absolute; width: 12px; height: 12px; transform: translate(-50%, -50%); border-radius: 50%;
+    background: #fff; border: 2px solid #374151; cursor: crosshair; pointer-events: auto; touch-action: none; opacity: 0; }
+.el.ARROW .delete { position: absolute; transform: translate(-50%, -50%); padding: 0 6px; border-radius: 50%;
+    pointer-events: auto; opacity: 0; }
+.el.ARROW:hover .handle, .el.ARROW:hover .delete, .el.ARROW .delete:focus-visible { opacity: 1; }
