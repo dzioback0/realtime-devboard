@@ -144,6 +144,19 @@ class BoardApiTest {
                 "{\"type\":\"ARROW\",\"x\":10,\"y\":10,\"width\":20,\"height\":20}").statusCode()).isEqualTo(400);
         assertThat(alice.send("POST", "/api/boards/" + alphaBoard + "/elements",
                 "{\"type\":\"ARROW\",\"x\":10,\"y\":10,\"width\":20,\"height\":20,\"endX\":-1,\"endY\":5}").statusCode()).isEqualTo(400);
+
+        // arrow ends attach only to non-arrow elements of the same board
+        String rect = alice.send("POST", "/api/boards/" + alphaBoard + "/elements",
+                "{\"type\":\"SHAPE\",\"x\":500,\"y\":500,\"width\":100,\"height\":60,\"shape\":\"RECT\"}").body()
+                .replaceAll(".*\"id\":(\\d+).*", "$1");
+        String attach = "{\"type\":\"ARROW\",\"x\":10,\"y\":10,\"width\":20,\"height\":20,\"endX\":500,\"endY\":530,\"endId\":%s}";
+        assertThat(alice.send("PUT", "/api/boards/" + alphaBoard + "/elements/" + arrowId, attach.formatted(rect)).body())
+                .contains("\"endId\":" + rect, "\"startId\":null");
+        assertThat(alice.send("PUT", "/api/boards/" + alphaBoard + "/elements/" + arrowId, attach.formatted(betaElement))
+                .statusCode()).as("attach to another workspace's element").isEqualTo(400);
+        assertThat(alice.send("PUT", "/api/boards/" + alphaBoard + "/elements/" + arrowId, attach.formatted(arrowId))
+                .statusCode()).as("attach to an arrow").isEqualTo(400);
+        assertThat(elements.findById(Long.valueOf(arrowId)).orElseThrow().getEndId()).isEqualTo(Long.valueOf(rect));
     }
 
     @Test

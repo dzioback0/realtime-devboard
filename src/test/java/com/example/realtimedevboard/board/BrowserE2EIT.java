@@ -3,6 +3,7 @@ package com.example.realtimedevboard.board;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.openqa.selenium.By;
+import org.openqa.selenium.Rectangle;
 import org.openqa.selenium.StaleElementReferenceException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
@@ -44,6 +45,15 @@ class BrowserE2EIT {
     /** The UI re-renders consoles on every socket message, so a looked-up node may go stale mid-check. */
     private static WebDriverWait waitFor(WebDriver driver, int seconds) {
         return (WebDriverWait) new WebDriverWait(driver, Duration.ofSeconds(seconds)).ignoring(StaleElementReferenceException.class);
+    }
+
+    /** The arrow end handle's center lies on the element's outline (3 px tolerance). */
+    private static boolean onBorder(Rectangle handle, Rectangle r) {
+        double cx = handle.getX() + handle.getWidth() / 2.0, cy = handle.getY() + handle.getHeight() / 2.0;
+        double left = r.getX(), right = r.getX() + r.getWidth(), top = r.getY(), bottom = r.getY() + r.getHeight();
+        boolean nearBox = cx >= left - 3 && cx <= right + 3 && cy >= top - 3 && cy <= bottom + 3;
+        double toEdge = Math.min(Math.min(Math.abs(cx - left), Math.abs(cx - right)), Math.min(Math.abs(cy - top), Math.abs(cy - bottom)));
+        return nearBox && toEdge <= 3;
     }
 
     private WebDriver loggedIn(String user) {
@@ -118,19 +128,24 @@ class BrowserE2EIT {
         waitFor(adam, 10).until(d -> d.findElements(By.cssSelector(".el.SHAPE.CIRCLE .label")).stream()
                 .anyMatch(l -> "API".equals(l.getDomProperty("value"))));
 
-        // arrow: drag its end point, the other session sees the new end
+        // arrow: drop its end on a rectangle -> attached; moving the rectangle drags the end along (seen by adam)
+        alice.findElement(By.cssSelector("[data-add=SHAPE][data-shape=RECT]")).click();
+        WebElement rect = waitFor(alice, 10).until(d -> d.findElements(By.cssSelector(".el.SHAPE:not(.CIRCLE)")).stream()
+                .reduce((a, b) -> b).orElse(null));
+        new Actions(alice).dragAndDropBy(rect, 700, 250).perform(); // to an empty area of the board
         alice.findElement(By.cssSelector("[data-add=ARROW]")).click();
-        WebElement arrow = waitFor(alice, 10).until(d -> d.findElements(By.cssSelector(".el.ARROW")).stream().findFirst().orElse(null));
-        String arrowId = arrow.getAttribute("data-id");
-        By adamArrowLine = By.cssSelector(".el[data-id='" + arrowId + "'] line.line");
-        waitFor(adam, 10).until(ExpectedConditions.presenceOfElementLocated(adamArrowLine));
-        int x2Before = Integer.parseInt(adam.findElement(adamArrowLine).getAttribute("x2"));
-        int y2Before = Integer.parseInt(adam.findElement(adamArrowLine).getAttribute("y2"));
-        new Actions(alice).moveToElement(arrow.findElement(By.cssSelector(".handle.end")))
-                .clickAndHold().moveByOffset(0, 80).release().perform();
-        // dragging the end down by 80 px grows the arrow's box, so the end moves 80 px down inside it
-        waitFor(adam, 10).until(d -> Integer.parseInt(d.findElement(adamArrowLine).getAttribute("y2")) == y2Before + 80
-                && Integer.parseInt(d.findElement(adamArrowLine).getAttribute("x2")) == x2Before);
+        WebElement arrow = waitFor(alice, 10).until(d -> d.findElements(By.cssSelector(".el.ARROW")).stream()
+                .reduce((a, b) -> b).orElse(null));
+        new Actions(alice).moveToElement(arrow.findElement(By.cssSelector(".handle.end"))).clickAndHold()
+                .moveToElement(rect).release().perform();
+
+        By adamEnd = By.cssSelector(".el[data-id='" + arrow.getAttribute("data-id") + "'] .handle.end");
+        By adamRect = By.cssSelector(".el[data-id='" + rect.getAttribute("data-id") + "']");
+        waitFor(adam, 10).until(d -> onBorder(d.findElement(adamEnd).getRect(), d.findElement(adamRect).getRect()));
+        int rectYBefore = adam.findElement(adamRect).getRect().getY();
+        new Actions(alice).dragAndDropBy(rect, 0, 150).perform();
+        waitFor(adam, 10).until(d -> d.findElement(adamRect).getRect().getY() == rectYBefore + 150
+                && onBorder(d.findElement(adamEnd).getRect(), d.findElement(adamRect).getRect()));
 
         // persisted: reload shows the stored result
         adam.navigate().refresh();

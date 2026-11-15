@@ -22,6 +22,8 @@ interface BoardElement {
     shape: string | null;
     endX: number | null;
     endY: number | null;
+    startId: number | null;
+    endId: number | null;
     lastRun: ExecutionResult | null;
 }
 
@@ -105,6 +107,7 @@ function render(el: BoardElement) {
         // While running, socket echoes still carry the previous result; keep showing RUNNING instead.
         if (!running.has(el.id)) renderConsole(node, el.lastRun);
     }
+    attachedArrows(el.id).forEach(a => renderArrow(nodes.get(a.id)!, a));
 }
 
 function createNode(el: BoardElement): HTMLElement {
@@ -207,11 +210,11 @@ function createArrow(el: BoardElement, node: HTMLElement): HTMLElement {
 }
 
 function renderArrow(node: HTMLElement, el: BoardElement) {
-    const x2 = el.endX ?? el.x, y2 = el.endY ?? el.y;
-    const left = Math.min(el.x, x2) - ARROW_PAD, top = Math.min(el.y, y2) - ARROW_PAD;
+    const p = arrowPoints(el);
+    const left = Math.min(p.x1, p.x2) - ARROW_PAD, top = Math.min(p.y1, p.y2) - ARROW_PAD;
     Object.assign(node.style, {left: `${left}px`, top: `${top}px`,
-        width: `${Math.abs(x2 - el.x) + 2 * ARROW_PAD}px`, height: `${Math.abs(y2 - el.y) + 2 * ARROW_PAD}px`});
-    const points = {x1: el.x - left, y1: el.y - top, x2: x2 - left, y2: y2 - top};
+        width: `${Math.abs(p.x2 - p.x1) + 2 * ARROW_PAD}px`, height: `${Math.abs(p.y2 - p.y1) + 2 * ARROW_PAD}px`});
+    const points = {x1: p.x1 - left, y1: p.y1 - top, x2: p.x2 - left, y2: p.y2 - top};
     node.querySelectorAll('line').forEach(l => {
         for (const [k, v] of Object.entries(points)) l.setAttribute(k, String(v));
     });
@@ -259,6 +262,65 @@ function renderConsole(node: HTMLElement, result: ExecutionResult | null | 'RUNN
     }
 }
 
+// ---------- arrow attachment ----------
+
+type Point = { x: number; y: number };
+
+function anchorOf(id: number | null): BoardElement | undefined {
+    const target = id == null ? undefined : elements.get(id);
+    return target && target.type !== 'ARROW' ? target : undefined; // deleted target = free end
+}
+
+function attachedArrows(id: number): BoardElement[] {
+    return [...elements.values()].filter(a => a.type === 'ARROW' && (a.startId === id || a.endId === id));
+}
+
+const centerOf = (e: BoardElement): Point => ({x: e.x + e.width / 2, y: e.y + e.height / 2});
+
+/** Where the line from e's center towards `toward` crosses e's outline (ellipse for circles, else rectangle). */
+function borderPoint(e: BoardElement, toward: Point): Point {
+    const c = centerOf(e), dx = toward.x - c.x, dy = toward.y - c.y;
+    if (dx === 0 && dy === 0) return c;
+    const hw = e.width / 2, hh = e.height / 2;
+    const t = e.shape === 'CIRCLE'
+        ? 1 / Math.hypot(dx / hw, dy / hh)
+        : Math.min(dx ? hw / Math.abs(dx) : Infinity, dy ? hh / Math.abs(dy) : Infinity);
+    return {x: c.x + dx * t, y: c.y + dy * t};
+}
+
+/** Attached ends follow their element; free ends use the stored coordinates. */
+function arrowPoints(el: BoardElement) {
+    const a = anchorOf(el.startId), b = anchorOf(el.endId);
+    const p1 = a ? centerOf(a) : {x: el.x, y: el.y};
+    const p2 = b ? centerOf(b) : {x: el.endX ?? el.x, y: el.endY ?? el.y};
+    const s = a ? borderPoint(a, p2) : p1, t = b ? borderPoint(b, p1) : p2;
+    return {x1: s.x, y1: s.y, x2: t.x, y2: t.y};
+}
+
+/** Store the currently drawn end points, so a free (or later detached) end stays where it is seen. */
+function freezeArrow(el: BoardElement) {
+    const p = arrowPoints(el);
+    el.x = clamp(p.x1, 0, 10_000);
+    el.y = clamp(p.y1, 0, 10_000);
+    el.endX = clamp(p.x2, 0, 10_000);
+    el.endY = clamp(p.y2, 0, 10_000);
+}
+
+/** The non-arrow element under the pointer, if any (the dragged handle itself is skipped). */
+function dropTargetAt(e: PointerEvent, arrowId: number): BoardElement | undefined {
+    for (const hit of document.elementsFromPoint(e.clientX, e.clientY)) {
+        const node = hit.closest<HTMLElement>('.el:not(.ARROW)');
+        const id = Number(node?.dataset.id);
+        if (node && id !== arrowId) return elements.get(id);
+    }
+    return undefined;
+}
+
+function highlightDropTarget(target: BoardElement | undefined) {
+    document.querySelectorAll('.drop-target').forEach(n => n.classList.remove('drop-target'));
+    if (target) nodes.get(target.id)?.classList.add('drop-target');
+}
+
 // ---------- editing ----------
 
 // Same bounds as the server-side validation (BoardController.ElementRequest).
@@ -270,6 +332,13 @@ function enableDrag(target: HTMLElement | SVGElement, id: number, mode: 'move' |
         const target = down.target as Element;
         if (target.closest('button, textarea.editing') || (mode === 'move' && target.closest('.resize'))) return;
         const el = elements.get(id)!;
+        const isEnd = mode === 'start' || mode === 'end';
+        if (el.type === 'ARROW') {
+            // Dragged ends are detached; they re-attach on release over an element.
+            freezeArrow(el);
+            if (mode !== 'end') el.startId = null;
+            if (mode !== 'start') el.endId = null;
+        }
         const start = {x: el.x, y: el.y, width: el.width, height: el.height,
             endX: el.endX ?? 0, endY: el.endY ?? 0, cx: down.clientX, cy: down.clientY};
         handle.setPointerCapture(down.pointerId);
@@ -288,11 +357,25 @@ function enableDrag(target: HTMLElement | SVGElement, id: number, mode: 'move' |
                 el.height = clamp(start.height + dy, 20, 4_000);
             }
             render(el);
+            if (isEnd) highlightDropTarget(dropTargetAt(e, id));
         };
-        const up = () => {
+        const up = (e: PointerEvent) => {
             handle.removeEventListener('pointermove', move);
             handle.removeEventListener('pointerup', up);
+            if (isEnd) {
+                const target = dropTargetAt(e, id);
+                highlightDropTarget(undefined);
+                if (mode === 'start') el.startId = target?.id ?? null;
+                else el.endId = target?.id ?? null;
+                freezeArrow(el);
+                render(el);
+            }
             save(id).catch(showError);
+            // keep attached arrows' stored points current (used if their target is deleted later)
+            attachedArrows(id).forEach(a => {
+                freezeArrow(a);
+                save(a.id).catch(showError);
+            });
         };
         handle.addEventListener('pointermove', move);
         handle.addEventListener('pointerup', up);
@@ -310,8 +393,9 @@ async function save(id: number) {
     pendingSaves.delete(id);
     const el = elements.get(id);
     if (!el || !current) return;
-    const {type, x, y, width, height, content, shape, endX, endY} = el;
-    await api('PUT', `/api/boards/${current.id}/elements/${id}`, {type, x, y, width, height, content, shape, endX, endY});
+    const {type, x, y, width, height, content, shape, endX, endY, startId, endId} = el;
+    await api('PUT', `/api/boards/${current.id}/elements/${id}`,
+        {type, x, y, width, height, content, shape, endX, endY, startId, endId});
 }
 
 async function add(type: ElementType, shape?: string) {
@@ -336,9 +420,11 @@ async function remove(id: number) {
 }
 
 function drop(id: number) {
+    const arrows = attachedArrows(id);
     nodes.get(id)?.remove();
     nodes.delete(id);
     elements.delete(id);
+    arrows.forEach(a => renderArrow(nodes.get(a.id)!, a)); // now free at their last saved points
 }
 
 async function run(id: number) {

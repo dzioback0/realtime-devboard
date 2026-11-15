@@ -71,7 +71,8 @@ public class BoardController {
                           @Min(20) @Max(4_000) int width, @Min(20) @Max(4_000) int height,
                           @Size(max = BoardElement.MAX_CONTENT) String content,
                           String shape,
-                          @Min(0) @Max(10_000) Integer endX, @Min(0) @Max(10_000) Integer endY) {
+                          @Min(0) @Max(10_000) Integer endX, @Min(0) @Max(10_000) Integer endY,
+                          Long startId, Long endId) {
     }
 
     @GetMapping("/me")
@@ -113,7 +114,7 @@ public class BoardController {
         Board board = accessibleBoard(boardId, user);
         requireValidKindFields(r.type(), r);
         BoardElement element = new BoardElement(board, r.type(), 0, 0, 20, 20, null);
-        apply(element, r);
+        apply(element, r, boardId);
         elements.save(element);
         sockets.publish(boardId, Map.of("type", "upsert", "element", element));
         return element;
@@ -125,7 +126,7 @@ public class BoardController {
                                @Valid @RequestBody ElementRequest r, Principal user) {
         BoardElement element = accessibleElement(boardId, elementId, user);
         requireValidKindFields(element.getType(), r);
-        apply(element, r);
+        apply(element, r, boardId);
         sockets.publish(boardId, Map.of("type", "upsert", "element", element));
         return element;
     }
@@ -166,12 +167,24 @@ public class BoardController {
         }
     }
 
-    private static void apply(BoardElement element, ElementRequest r) {
+    private void apply(BoardElement element, ElementRequest r, Long boardId) {
         ElementType type = element.getType();
         element.update(r.x(), r.y(), r.width(), r.height(), r.content(),
                 type == ElementType.SHAPE ? r.shape() : null,
                 type == ElementType.ARROW ? r.endX() : null,
                 type == ElementType.ARROW ? r.endY() : null);
+        boolean arrow = type == ElementType.ARROW;
+        element.attach(arrow ? attachable(r.startId(), boardId) : null, arrow ? attachable(r.endId(), boardId) : null);
+    }
+
+    /** An arrow end may only point at a non-arrow element of the same board (never another tenant's element). */
+    private Long attachable(Long targetId, Long boardId) {
+        if (targetId == null) {
+            return null;
+        }
+        return elements.findByIdAndBoardId(targetId, boardId).filter(t -> t.getType() != ElementType.ARROW)
+                .map(BoardElement::getId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Arrow can only attach to an element of this board"));
     }
 
     private Board accessibleBoard(Long boardId, Principal user) {

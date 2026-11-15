@@ -48,3 +48,4 @@ button:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2p
 .el.ARROW .delete { position: absolute; transform: translate(-50%, -50%); padding: 0 6px; border-radius: 50%;
     pointer-events: auto; opacity: 0; }
 .el.ARROW:hover .handle, .el.ARROW:hover .delete, .el.ARROW .delete:focus-visible { opacity: 1; }
+.el.drop-target { outline: 2px dashed #2563eb; outline-offset: 3px; }

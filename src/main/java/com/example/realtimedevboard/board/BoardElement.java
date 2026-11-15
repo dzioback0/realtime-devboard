@@ -46,6 +46,11 @@ public class BoardElement {
     private Integer endX;
     private Integer endY;
 
+    /** ARROW only: elements of the same board the ends are attached to (null = free end). No FK: a deleted
+     * target just leaves the end free at its last saved point. */
+    private Long startId;
+    private Long endId;
+
     @Enumerated(EnumType.STRING)
     private ExecutionStatus runStatus;
     @Column(length = MAX_CONTENT)
@@ -64,6 +69,11 @@ public class BoardElement {
         this.board = board;
         this.type = type;
         update(x, y, width, height, content, null, null, null);
+    }
+
+    void attach(Long startId, Long endId) {
+        this.startId = startId;
+        this.endId = endId;
     }
 
     void update(int x, int y, int width, int height, String content, String shape, Integer endX, Integer endY) {
@@ -124,6 +134,14 @@ public class BoardElement {
 
     public Integer getEndY() {
         return endY;
+    }
+
+    public Long getStartId() {
+        return startId;
+    }
+
+    public Long getEndId() {
+        return endId;
     }
 
     /** Null until the element has been run. */
