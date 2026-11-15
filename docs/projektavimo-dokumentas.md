@@ -68,7 +68,29 @@ Gaunamas kodas → patikrinama kalba → parenkamas `CodeExecutor` → kodas vyk
 1. Nepalaikomos kalbos kodas nevykdomas ir grąžinama `UNSUPPORTED_LANGUAGE`.
 2. Naudotojo kodas vykdomas atskirai nuo pagrindinės aplikacijos proceso.
 3. Viršijus vykdymo laiko limitą procesas nutraukiamas ir grąžinama `TIMEOUT`.
-4. Nepavykus sukompiliuoti kodo grąžinama `COMPILATION_ERROR` ir klaidos pranešimas.
+4. Nepavykus sukompiliuoti kodo grąžinama `COMPILATION_ERROR` ir kompiliatoriaus diagnostika.
+5. Naudotojo kodas ir jo kompiliavimas vykdomi atskirame trumpalaikiame Docker konteineryje, ne aplikacijos JVM. Viršijus 7 s vykdymo arba 15 s kompiliavimo limitą, pašalinamas visas konteineris (`docker rm -f`) su visais jo procesais.
+6. `MEMORY_LIMIT_EXCEEDED` grąžinama tik turint įrodymą: branduolio cgroup `memory.events` rodo `oom_kill > 0` (konteinerio 256 MiB riba) arba programa baigėsi neperimtu `java.lang.OutOfMemoryError` (heap riba `-Xmx128m`). Vien exit kodas 137 reiškia `RUNTIME_ERROR`.
+7. Viršijus 64 KiB bendrą stdout + stderr išvestį, konteineris pašalinamas ir grąžinama `OUTPUT_LIMIT_EXCEEDED`.
+8. Docker infrastruktūros klaida grąžinama kaip `EXECUTION_ERROR` ir niekada nemaskuojama kaip sėkmė.
+
+### Izoliuoto vykdymo ribos (įgyvendinta, `DockerJavaExecutor`)
+
+| Sritis | Riba | Laukiama būsena / elgsena |
+|---|---|---|
+| Vykdymo laikas | 7 s nuo `java` paleidimo | `TIMEOUT`, pašalintas visas konteineris |
+| Kompiliavimas | 15 s | `TIMEOUT` („Compilation exceeded 15 s“) |
+| RAM | 256 MiB konteineriui, `--memory-swap` lygus ribai (swap nėra) | `MEMORY_LIMIT_EXCEEDED` (kernel OOM kill) |
+| Java heap | `-Xmx128m` | `MEMORY_LIMIT_EXCEEDED` („Java heap…“) |
+| CPU | `--cpus 0.5` | apkrova ribojama; ilgas darbas baigiasi `TIMEOUT` (atskiros CPU būsenos nėra) |
+| Failai | read-only šaknis; rašoma tik `/work` ir `/tmp` (tmpfs 16 MiB, `noexec`); jokių host prijungimų | neleistinas rašymas nepavyksta |
+| Tinklas | `--network none` | prisijungimas nepavyksta |
+| Išvestis | 64 KiB stdout + stderr | `OUTPUT_LIMIT_EXCEEDED` |
+| Procesai / gijos | `--pids-limit 128` | papildomos gijos / procesai nesukuriami |
+| Teisės | naudotojas 65534, `--cap-drop ALL`, `no-new-privileges`, ne privileged | — |
+| Apkrova | 2 vykdymai vienu metu, kodas ≤ 64 KiB | HTTP 429 / 413 |
+
+Pradinės ribos iš užduoties nepakeistos. Papildomai pasirinkta `-Xmx128m`, kad JVM heap riba būtų žemiau konteinerio ribos ir įprastas atminties kaupimas baigtųsi aiškiu `OutOfMemoryError`. `--pids-limit 128` parinktas, nes Docker gijas skaičiuoja kaip procesus, o JVM ir `javac` naudoja kelias dešimtis gijų.
 
 ### Scenarijai būsimiems testams
 
@@ -77,6 +99,18 @@ Gaunamas kodas → patikrinama kalba → parenkamas `CodeExecutor` → kodas vyk
 | Įprastas | Java kodas išveda `"Hello"` | `SUCCESS`, išvestis `"Hello"` |
 | Ribinis | Begalinis ciklas, limitas  7s | `TIMEOUT` |
 | Klaida | Java sintaksės klaida | `COMPILATION_ERROR` ir klaidos tekstas |
+| Vykdymo išimtis | `1 / args.length` | `RUNTIME_ERROR`, `ArithmeticException` |
+| Heap kaupimas | `while (true) list.add(new byte[1_000_000])` | `MEMORY_LIMIT_EXCEEDED` (Java heap) |
+| Konteinerio RAM | vaikinis `java -Xmx1g` pildo atmintį | `MEMORY_LIMIT_EXCEEDED` (kernel OOM kill), vaikas baigiasi kodu 137 |
+| CPU | 4 gijos sukasi 3 s | `cpu.max 50000 100000`, CPU laikas / sieninis laikas < 0,75 |
+| Failai | rašymas į `/work`, `/etc`, `/opt/java`, `/`, 20 MiB failas; host kontrolinis failas; `/proc/self/mountinfo` | pavyksta tik rašymas į `/work`; host failas nematomas; nėra host prijungimų |
+| Tinklas | jungtis prie testo paleisto veikiančio serverio | iš konteinerio nepavyksta; kontrolinis prisijungimas iš testo pavyksta |
+| Vaikinis procesas | `sleep 1000` + laukimas | `TIMEOUT`; po testo nelieka nė vieno užduoties konteinerio |
+| Neribota išvestis | begalinis `println` | `OUTPUT_LIMIT_EXCEEDED`, išvestis ≤ 64 KiB |
+| Sistema po ribų | `/api/health` vykdymo metu, naujas Hello po `TIMEOUT` | atsako < 2 s, `SUCCESS` |
+| Darbo erdvės | `alice` bando skaityti / keisti / vykdyti Beta lentą per REST ir WebSocket | 404 / atmestas handshake |
+
+Testų būsena (2026-11-15): `./mvnw test` paleista, praėjo 21/21. `DockerSandboxIT` ir `ExecutionApiIT` parašyti, bet **nepaleisti**, nes kūrimo kompiuteryje nebuvo Docker. `BrowserE2EIT` paleistas be Docker ir nepraėjo: UI dalis veikė, bet Run parodė `EXECUTION_ERROR`.
 
 ## 4. Kokybės atributas
 
@@ -96,10 +130,10 @@ Po 7 s vykdymas nutraukiamas, grąžinama `TIMEOUT`, o pagrindinė sistema lieka
 Kodas bus vykdomas izoliuotoje aplinkoje su laiko, CPU ir RAM apribojimais bei ribota prieiga prie sistemos resursų.
 
 **Kaip patikrinsiu vėlesniame etape:**  
-Integraciniais testais su begaliniu ciklu, per dideliu atminties naudojimu ir bandymu pasiekti neleistinus resursus.
+Integraciniais testais su tikru Docker (`DockerSandboxIT`, `ExecutionApiIT`, `./mvnw verify`): begalinis ciklas, heap ir konteinerio atminties perpildymas, CPU kvota, failų sistema, tinklas, vaikiniai procesai, gijų riba, neribota išvestis ir API atsakas vykdymo metu. Mock testai naudojami tik sprendimų logikai, nes jie neįrodo resursų ribojimo.
 
 **Sprendimo kaina arba ribojimas:**  
-Izoliuotas vykdymas padidina sistemos sudėtingumą ir resursų sąnaudas.
+Izoliuotas vykdymas padidina sistemos sudėtingumą ir resursų sąnaudas: konteinerio paleidimas ir kompiliavimas su 0,5 CPU užtrunka kelias sekundes. Aplikacijai reikia Docker socket prieigos, kuri prilygsta root teisėms Docker serveryje. Tai pasitikėjimo riba: socket'ą turi tik aplikacija, vykdymo konteineriai jo neturi. Docker nėra absoliuti apsauga nuo branduolio ar runtime spragų.
 
 ## 5. Pradinė sistemos struktūra
 
@@ -113,6 +147,23 @@ Spring Boot
  ├── Execution Service → CodeExecutor → Isolated Runtime
  └── PostgreSQL
 ```
+
+**Įgyvendinta struktūra (2026-11-15):**
+
+```text
+ Web Client (TypeScript, be framework)
+     │
+REST (keitimai, Run) / WebSocket (tik pranešimai serveris → klientas)
+     │
+Spring Boot (Spring Security sesijos, darbo erdvių patikra)
+ ├── BoardController + BoardSocketHandler (Collaboration)
+ ├── ExecutionService → DockerJavaExecutor → docker CLI → atskiras konteineris kiekvienam Run
+ └── PostgreSQL (JPA)
+```
+
+- **Multitenancy:** Workspace yra tenant. Naudotojas turi narystę darbo erdvėje, lentos priklauso darbo erdvei, elementai ir paskutinis vykdymo rezultatas priklauso lentai. Lenta visada ieškoma kartu su naryste, o svetima lenta grąžina 404.
+- **Bendradarbiavimas:** sinchronizuojami elementai, ne simboliai. Politika: paskutinis įrašas laimi visam elementui. WebSocket prenumerata fiksuojama per handshake po narystės patikros.
+- **Atskiras `CodeExecutor` interfeisas nekurtas,** nes palaikoma tik Java. `ExecutionService` patikrina kalbą ir grąžina `UNSUPPORTED_LANGUAGE`.
 
 | Sistemos dalis | Atsakomybė |
 |---|---|
@@ -146,6 +197,26 @@ Kodą peržiūrėsiu, pritaikysiu projektui ir tikrinsiu automatizuotais testais
 **Ar AI bus sistemos funkcionalumo dalis:**  
 Ne.
 
+### AI refleksija: prototipo kūrimas (Claude Code, 2026-11-15)
+
+Prototipo kodą, testus ir šio dokumento atnaujinimą sugeneravo Claude Code pagal mano parengtą užduoties aprašą. Žemiau pateikti konkretūs šios sesijos pasiūlymai.
+
+| Pasiūlymas | Sprendimas | Priežastis |
+|---|---|---|
+| Kiekvienam Run atskiras konteineris, kurio PID 1 yra `sleep`, o `javac` / `java` paleidžiami per `docker exec` | panaudota | atskiri kompiliavimo ir vykdymo limitai viename konteineryje; `docker rm -f` nužudo visus procesus |
+| `--rm` ir baigtinis `sleep` kaip atsarginis valymas | panaudota | konteineris dingsta net nulūžus aplikacijai |
+| OOM nustatyti pagal cgroup `memory.events` | panaudota | exit 137 neįrodo atminties viršijimo (tai gali būti bet koks SIGKILL) |
+| Du atminties keliai: `-Xmx128m` (heap) ir 256 MiB konteinerio riba (vaikinis JVM) | panaudota, pakeista | pradinė lentelė turėjo tik konteinerio ribą; heap riba duoda aiškesnę klaidą, o testas su `java -Xmx1g` įrodo konteinerio ribą |
+| Docker valdyti per CLI (`ProcessBuilder`), ne per docker-java biblioteką | panaudota | mažiau priklausomybių, komandas lengva parodyti ir patikrinti |
+| Atskira `CPU_LIMIT_EXCEEDED` būsena | atmesta | kvota tik lėtina, patikimo nustatymo mechanizmo nėra |
+| WebSocket kaip tik serverio pranešimų kanalas (be STOMP / SockJS) | panaudota | visa autorizacija ir validacija lieka REST, mažiau tikrintinų WS žinučių |
+| React / Vite klientas | atmesta | prototipui pakanka TypeScript su `tsc` |
+| Testcontainers PostgreSQL testams | atmesta | API testams pakanka H2, ir jie veikia be Docker; produkcijoje naudojama PostgreSQL |
+| Mock testas izoliacijai įrodyti | atmesta | mock neįrodo resursų ribojimo, todėl naudojami tikri Docker integraciniai testai |
+| Atskiras vykdymo mikroservisas | atmesta | nereikalingas sudėtingumas; pasitikėjimo riba dokumentuota |
+
+Tikrinimas: `./mvnw test` paleista ir praėjo (21/21). Docker izoliacijos testai parašyti, bet kūrimo metu nepaleisti, nes Docker nebuvo įdiegtas. Šių testų rezultatų nepateikiu, kol jie nepaleisti.
+
 ## 7. Tolesnių darbų planas
 
 | Darbas | Rezultatas |
@@ -166,4 +237,4 @@ Du naudotojai atidaro tą pačią lentą. Vienas sukuria Java Code Block, išved
 
 ## Šaltiniai, jei naudojote
 
-Išoriniai informacijos šaltiniai rengiant projekto aprašymą nenaudoti.
+Išoriniai informacijos šaltiniai rengiant projekto aprašymą nenaudoti. Kuriant prototipą remtasi bendromis žiniomis apie Docker `docker run` parinktis, Linux cgroup v2 (`memory.events`, `cpu.max`) ir Spring Security; konkretūs dokumentacijos puslapiai šio darbo metu neatidaryti.

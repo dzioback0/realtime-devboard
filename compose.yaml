@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: devboard
+      POSTGRES_USER: devboard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432" # only for running the app from the IDE; not reachable from other machines
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devboard -d devboard"]
+      interval: 2s
+      retries: 30
+
+  # Not a long-running service: makes `up` pull the sandbox image that the app starts per execution.
+  sandbox-image:
+    image: eclipse-temurin:21-jdk
+    command: ["java", "-version"]
+
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: jdbc:postgresql://db:5432/devboard
+      DATABASE_USER: devboard
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:?set DEMO_PASSWORD in .env}
+    volumes:
+      # Trust boundary: the app (trusted) controls Docker; sandbox containers never get this socket.
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      db:
+        condition: service_healthy
+      sandbox-image:
+        condition: service_completed_successfully
+
+volumes:
+  db-data:
