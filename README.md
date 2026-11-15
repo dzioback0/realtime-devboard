@@ -1,6 +1,6 @@
 # realtime-devboard
 
-Real-time collaborative whiteboard for software development teams with executable code blocks and an isolated execution console.
+Realiojo laiko bendradarbiavimo lenta programinės įrangos kūrimo komandoms su vykdomais kodo blokais ir izoliuota vykdymo konsole.
 
 Lentoje kuriami tekstai, figūros (stačiakampis, apskritimas su užrašu), rodyklės ir Java kodo blokai; visų dydis keičiamas už kampo. Kodo bloką galima paleisti: kodas
 kompiliuojamas ir vykdomas **atskirame, apribotame Docker konteineryje**, o rezultatas rodomas
