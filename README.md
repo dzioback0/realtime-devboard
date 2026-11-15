@@ -139,5 +139,5 @@ Kata ar atskiros VM.
 - Java heap OOM atpažįstamas iš stderr. Programa gali tai suklastoti, bet paveiktų tik savo pačios rezultatą.
 - Atminties OOM aptikimui reikia cgroup v2 (Docker Desktop / šiuolaikinis Linux). Su cgroup v1 OOM kill būtų rodomas kaip `RUNTIME_ERROR` ir užrašomas į žurnalą.
 - Atšaukus naršyklės užklausą, serveris vykdymą užbaigia iki ribos; konteineris vis tiek pašalinamas.
-- Narystės pašalinimas jau atidaryto WebSocket neuždaro; nėra elementų dydžio keitimo, sintaksės paryškinimo, stdin.
+- Narystės pašalinimas jau atidaryto WebSocket neuždaro; dydį galima keisti tik figūroms (stačiakampiui, apskritimui), ne teksto ir kodo blokams; nėra sintaksės paryškinimo, stdin.
 - Konteinerio paleidimas ir kompiliavimas su 0,5 CPU užtrunka kelias sekundes.

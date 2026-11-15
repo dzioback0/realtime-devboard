@@ -109,16 +109,23 @@ class BoardApiTest {
         TestSession.Socket adamSocket = adam.connect(alphaBoard, null);
 
         var created = alice.send("POST", "/api/boards/" + alphaBoard + "/elements",
-                "{\"type\":\"SHAPE\",\"x\":10,\"y\":20,\"width\":120,\"height\":80,\"content\":\"box\"}");
+                "{\"type\":\"SHAPE\",\"x\":10,\"y\":20,\"width\":120,\"height\":80,\"content\":\"RECT\"}");
         assertThat(created.statusCode()).isEqualTo(201);
         String id = created.body().replaceAll(".*\"id\":(\\d+).*", "$1");
-        assertThat(adamSocket.messages.poll(5, TimeUnit.SECONDS)).contains("\"upsert\"", "\"box\"", "\"SHAPE\"");
+        assertThat(adamSocket.messages.poll(5, TimeUnit.SECONDS)).contains("\"upsert\"", "\"RECT\"", "\"SHAPE\"");
 
+        // move + resize + change kind
         alice.send("PUT", "/api/boards/" + alphaBoard + "/elements/" + id,
-                "{\"type\":\"SHAPE\",\"x\":300,\"y\":20,\"width\":120,\"height\":80,\"content\":\"moved\"}");
-        assertThat(adamSocket.messages.poll(5, TimeUnit.SECONDS)).contains("\"x\":300", "moved");
+                "{\"type\":\"SHAPE\",\"x\":300,\"y\":20,\"width\":250,\"height\":180,\"content\":\"CIRCLE\"}");
+        assertThat(adamSocket.messages.poll(5, TimeUnit.SECONDS)).contains("\"x\":300", "\"width\":250", "CIRCLE");
         // persisted: a fresh load (page refresh) sees the change
-        assertThat(adam.send("GET", "/api/boards/" + alphaBoard, null).body()).contains("moved");
+        assertThat(adam.send("GET", "/api/boards/" + alphaBoard, null).body()).contains("\"width\":250", "CIRCLE");
+
+        // a shape carries no free text
+        assertThat(alice.send("PUT", "/api/boards/" + alphaBoard + "/elements/" + id,
+                "{\"type\":\"SHAPE\",\"x\":1,\"y\":1,\"width\":100,\"height\":50,\"content\":\"hello\"}").statusCode()).isEqualTo(400);
+        assertThat(alice.send("POST", "/api/boards/" + alphaBoard + "/elements",
+                "{\"type\":\"SHAPE\",\"x\":1,\"y\":1,\"width\":100,\"height\":50}").statusCode()).isEqualTo(400);
 
         assertThat(alice.send("DELETE", "/api/boards/" + alphaBoard + "/elements/" + id, null).statusCode()).isEqualTo(204);
         assertThat(adamSocket.messages.poll(5, TimeUnit.SECONDS)).contains("\"delete\"", "\"id\":" + id);

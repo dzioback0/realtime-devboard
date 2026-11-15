@@ -26,6 +26,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.security.Principal;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Every endpoint resolves the board through the caller's workspace memberships; a client-supplied id
@@ -35,6 +36,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api")
 public class BoardController {
+
+    static final Set<String> SHAPE_KINDS = Set.of("RECT", "CIRCLE");
 
     private final WorkspaceRepository workspaces;
     private final BoardRepository boards;
@@ -106,6 +109,7 @@ public class BoardController {
     @Transactional
     BoardElement addElement(@PathVariable Long boardId, @Valid @RequestBody ElementRequest r, Principal user) {
         Board board = accessibleBoard(boardId, user);
+        requireValidShape(r.type(), r.content());
         BoardElement element = elements.save(new BoardElement(board, r.type(), r.x(), r.y(), r.width(), r.height(), r.content()));
         sockets.publish(boardId, Map.of("type", "upsert", "element", element));
         return element;
@@ -116,6 +120,7 @@ public class BoardController {
     BoardElement updateElement(@PathVariable Long boardId, @PathVariable Long elementId,
                                @Valid @RequestBody ElementRequest r, Principal user) {
         BoardElement element = accessibleElement(boardId, elementId, user);
+        requireValidShape(element.getType(), r.content());
         element.update(r.x(), r.y(), r.width(), r.height(), r.content());
         sockets.publish(boardId, Map.of("type", "upsert", "element", element));
         return element;
@@ -144,6 +149,14 @@ public class BoardController {
             sockets.publish(boardId, Map.of("type", "upsert", "element", fresh));
         });
         return result;
+    }
+
+    /** A SHAPE stores its kind in content; no free text is allowed there. */
+    private static void requireValidShape(ElementType type, String content) {
+        // Set.of(...).contains(null) throws, hence the explicit null check
+        if (type == ElementType.SHAPE && (content == null || !SHAPE_KINDS.contains(content))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Shape content must be one of " + SHAPE_KINDS);
+        }
     }
 
     private Board accessibleBoard(Long boardId, Principal user) {

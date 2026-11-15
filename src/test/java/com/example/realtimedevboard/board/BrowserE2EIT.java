@@ -3,10 +3,12 @@ package com.example.realtimedevboard.board;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.openqa.selenium.By;
+import org.openqa.selenium.StaleElementReferenceException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.interactions.Actions;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,6 +41,11 @@ class BrowserE2EIT {
         drivers.forEach(WebDriver::quit);
     }
 
+    /** The UI re-renders consoles on every socket message, so a looked-up node may go stale mid-check. */
+    private static WebDriverWait waitFor(WebDriver driver, int seconds) {
+        return (WebDriverWait) new WebDriverWait(driver, Duration.ofSeconds(seconds)).ignoring(StaleElementReferenceException.class);
+    }
+
     private WebDriver loggedIn(String user) {
         ChromeOptions options = new ChromeOptions().addArguments("--headless=new", "--window-size=1400,900");
         WebDriver driver = new ChromeDriver(options);
@@ -47,9 +54,9 @@ class BrowserE2EIT {
         driver.findElement(By.name("username")).sendKeys(user);
         driver.findElement(By.name("password")).sendKeys(BoardApiTest.PASSWORD);
         driver.findElement(By.cssSelector("button[type=submit]")).click();
-        new WebDriverWait(driver, Duration.ofSeconds(10))
+        waitFor(driver, 10)
                 .until(ExpectedConditions.visibilityOfElementLocated(By.cssSelector(".el.CODE")));
-        new WebDriverWait(driver, Duration.ofSeconds(10))
+        waitFor(driver, 10)
                 .until(ExpectedConditions.attributeContains(By.id("live"), "class", "on"));
         return driver;
     }
@@ -63,7 +70,7 @@ class BrowserE2EIT {
 
         alice.findElement(By.cssSelector(".el.CODE .run")).click();
         By status = By.cssSelector(".el.CODE .console .status");
-        String finalStatus = new WebDriverWait(alice, Duration.ofSeconds(60)).until(d -> {
+        String finalStatus = waitFor(alice, 60).until(d -> {
             String text = d.findElement(status).getText();
             return text.startsWith("RUNNING") || text.contains("nevykdyta") ? null : text;
         });
@@ -71,16 +78,25 @@ class BrowserE2EIT {
         assertThat(alice.findElement(By.cssSelector(".el.CODE .console pre.stdout")).getText()).isEqualTo("Hello");
 
         // the other session got the execution result over the WebSocket, without reloading
-        new WebDriverWait(adam, Duration.ofSeconds(10)).until(d -> d.findElement(status).getText().startsWith("SUCCESS"));
+        waitFor(adam, 10).until(d -> d.findElement(status).getText().startsWith("SUCCESS"));
         assertThat(adam.findElement(By.cssSelector(".el.CODE .console pre.stdout")).getText()).isEqualTo("Hello");
 
         int before = adam.findElements(By.cssSelector(".el")).size();
         alice.findElement(By.cssSelector("[data-add=TEXT]")).click();
-        new WebDriverWait(adam, Duration.ofSeconds(10)).until(d -> d.findElements(By.cssSelector(".el")).size() == before + 1);
+        waitFor(adam, 10).until(d -> d.findElements(By.cssSelector(".el")).size() == before + 1);
+
+        // a circle has no text field; resizing it by the corner handle reaches the other session
+        alice.findElement(By.cssSelector("[data-add=SHAPE][data-shape=CIRCLE]")).click();
+        WebElement circle = waitFor(alice, 10)
+                .until(ExpectedConditions.visibilityOfElementLocated(By.cssSelector(".el.SHAPE.CIRCLE")));
+        assertThat(circle.findElements(By.tagName("textarea"))).isEmpty();
+        new Actions(alice).dragAndDropBy(circle.findElement(By.cssSelector(".resize")), 80, 40).perform();
+        waitFor(adam, 10).until(d -> d.findElements(By.cssSelector(".el.SHAPE.CIRCLE")).stream()
+                .anyMatch(c -> c.getCssValue("width").equals("200px") && c.getCssValue("height").equals("160px")));
 
         // persisted: reload shows the stored result
         adam.navigate().refresh();
-        WebElement console = new WebDriverWait(adam, Duration.ofSeconds(10))
+        WebElement console = waitFor(adam, 10)
                 .until(ExpectedConditions.visibilityOfElementLocated(status));
         assertThat(console.getText()).startsWith("SUCCESS");
     }

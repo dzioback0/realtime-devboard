@@ -85,10 +85,13 @@ function render(el: BoardElement) {
         boardEl.append(node);
     }
     Object.assign(node.style, {left: `${el.x}px`, top: `${el.y}px`, width: `${el.width}px`, height: `${el.height}px`});
-    const text = node.querySelector('textarea')!;
+    const text = node.querySelector('textarea');
     // Last write wins per element, but do not overwrite what the local user is typing right now.
-    if (document.activeElement !== text) {
+    if (text && document.activeElement !== text) {
         text.value = el.content ?? '';
+    }
+    if (el.type === 'SHAPE') {
+        node.classList.toggle('CIRCLE', el.content === 'CIRCLE');
     }
     if (el.type === 'CODE') {
         renderConsole(node, el.lastRun);
@@ -100,17 +103,29 @@ function createNode(el: BoardElement): HTMLElement {
     node.className = `el ${el.type}`;
     node.dataset.id = String(el.id);
 
+    if (el.type === 'SHAPE') {
+        // A plain shape: the whole body moves it, the corner handle resizes it.
+        node.setAttribute('role', 'img');
+        node.setAttribute('aria-label', el.content === 'CIRCLE' ? 'Apskritimas' : 'Stačiakampis');
+        const resize = document.createElement('div');
+        resize.className = 'resize';
+        node.append(button('×', 'delete', () => remove(el.id), 'Pašalinti figūrą'), resize);
+        enableDrag(node, el.id, 'move');
+        enableDrag(resize, el.id, 'resize');
+        return node;
+    }
+
     const bar = document.createElement('div');
     bar.className = 'bar';
     const title = document.createElement('span');
     title.className = 'title';
-    title.textContent = {TEXT: 'Tekstas', SHAPE: 'Figūra', CODE: 'Java'}[el.type];
+    title.textContent = el.type === 'CODE' ? 'Java' : 'Tekstas';
     bar.append(title);
     if (el.type === 'CODE') {
         bar.append(button('▶ Run', 'run', () => run(el.id)));
     }
     bar.append(button('×', 'delete', () => remove(el.id), 'Pašalinti'));
-    enableDrag(bar, el.id);
+    enableDrag(bar, el.id, 'move');
 
     const text = document.createElement('textarea');
     text.spellcheck = el.type !== 'CODE';
@@ -173,15 +188,25 @@ function renderConsole(node: HTMLElement, result: ExecutionResult | null | 'RUNN
 
 // ---------- editing ----------
 
-function enableDrag(handle: HTMLElement, id: number) {
+// Same bounds as the server-side validation (BoardController.ElementRequest).
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(v)));
+
+function enableDrag(handle: HTMLElement, id: number, mode: 'move' | 'resize') {
     handle.addEventListener('pointerdown', down => {
-        if ((down.target as HTMLElement).closest('button')) return;
+        const target = down.target as HTMLElement;
+        if (target.closest('button') || (mode === 'move' && target.closest('.resize'))) return;
         const el = elements.get(id)!;
-        const startX = down.clientX - el.x, startY = down.clientY - el.y;
+        const start = {x: el.x, y: el.y, width: el.width, height: el.height, cx: down.clientX, cy: down.clientY};
         handle.setPointerCapture(down.pointerId);
         const move = (e: PointerEvent) => {
-            el.x = Math.max(0, Math.round(e.clientX - startX));
-            el.y = Math.max(0, Math.round(e.clientY - startY));
+            const dx = e.clientX - start.cx, dy = e.clientY - start.cy;
+            if (mode === 'move') {
+                el.x = clamp(start.x + dx, 0, 10_000);
+                el.y = clamp(start.y + dy, 0, 10_000);
+            } else {
+                el.width = clamp(start.width + dx, 20, 4_000);
+                el.height = clamp(start.height + dy, 20, 4_000);
+            }
             render(el);
         };
         const up = () => {
@@ -209,12 +234,13 @@ async function save(id: number) {
     await api('PUT', `/api/boards/${current.id}/elements/${id}`, {type, x, y, width, height, content});
 }
 
-async function add(type: ElementType) {
+async function add(type: ElementType, shape?: string) {
     if (!current) return;
-    const size = type === 'CODE' ? {width: 460, height: 300} : {width: 200, height: 100};
+    const size = type === 'CODE' ? {width: 460, height: 300}
+        : shape === 'CIRCLE' ? {width: 120, height: 120} : {width: 200, height: 100};
     const content = type === 'CODE'
         ? 'public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello");\n    }\n}\n'
-        : '';
+        : type === 'SHAPE' ? shape : '';
     const offset = 20 * (elements.size % 10);
     render(await api<BoardElement>('POST', `/api/boards/${current.id}/elements`,
         {type, x: 60 + offset, y: 60 + offset, ...size, content}));
@@ -317,7 +343,7 @@ async function start() {
     select.addEventListener('change', () => openBoard(Number(select.value)).catch(showError));
     $<HTMLButtonElement>('new-board').addEventListener('click', () => newBoard().catch(showError));
     document.querySelectorAll<HTMLButtonElement>('[data-add]').forEach(b =>
-        b.addEventListener('click', () => add(b.dataset.add as ElementType).catch(showError)));
+        b.addEventListener('click', () => add(b.dataset.add as ElementType, b.dataset.shape).catch(showError)));
     await loadBoards();
 }
 
