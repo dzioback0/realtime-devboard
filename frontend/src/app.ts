@@ -51,6 +51,7 @@ let socket: WebSocket | null = null;
 const elements = new Map<number, BoardElement>();
 const nodes = new Map<number, HTMLElement>();
 const pendingSaves = new Map<number, number>();
+const running = new Set<number>(); // code blocks this client is running right now
 
 function csrfToken(): string {
     const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
@@ -101,7 +102,8 @@ function render(el: BoardElement) {
         node.classList.toggle('CIRCLE', el.shape === 'CIRCLE');
     }
     if (el.type === 'CODE') {
-        renderConsole(node, el.lastRun);
+        // While running, socket echoes still carry the previous result; keep showing RUNNING instead.
+        if (!running.has(el.id)) renderConsole(node, el.lastRun);
     }
 }
 
@@ -344,6 +346,7 @@ async function run(id: number) {
     if (!current || !node) return;
     const runButton = node.querySelector<HTMLButtonElement>('.run')!;
     runButton.disabled = true;
+    running.add(id);
     renderConsole(node, 'RUNNING');
     try {
         await save(id); // the server runs the saved code
@@ -354,6 +357,7 @@ async function run(id: number) {
         renderConsole(node, null);
         showError(e);
     } finally {
+        running.delete(id);
         runButton.disabled = false;
     }
 }

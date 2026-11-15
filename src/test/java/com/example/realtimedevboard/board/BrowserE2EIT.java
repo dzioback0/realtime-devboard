@@ -81,6 +81,20 @@ class BrowserE2EIT {
         waitFor(adam, 10).until(d -> d.findElement(status).getText().startsWith("SUCCESS"));
         assertThat(adam.findElement(By.cssSelector(".el.CODE .console pre.stdout")).getText()).isEqualTo("Hello");
 
+        // Run again with broken code: the old SUCCESS must not reappear while the new run is in progress
+        WebElement code = alice.findElement(By.cssSelector(".el.CODE textarea"));
+        code.clear();
+        code.sendKeys("public class Main { int x = }");
+        alice.findElement(By.cssSelector(".el.CODE .run")).click();
+        List<String> seen = new ArrayList<>();
+        String rerun = waitFor(alice, 60).pollingEvery(Duration.ofMillis(50)).until(d -> {
+            String text = d.findElement(status).getText();
+            seen.add(text);
+            return text.startsWith("RUNNING") ? null : text;
+        });
+        assertThat(rerun).startsWith("COMPILATION_ERROR");
+        assertThat(seen).noneMatch(t -> t.startsWith("SUCCESS"));
+
         int before = adam.findElements(By.cssSelector(".el")).size();
         alice.findElement(By.cssSelector("[data-add=TEXT]")).click();
         waitFor(adam, 10).until(d -> d.findElements(By.cssSelector(".el")).size() == before + 1);
@@ -122,6 +136,6 @@ class BrowserE2EIT {
         adam.navigate().refresh();
         WebElement console = waitFor(adam, 10)
                 .until(ExpectedConditions.visibilityOfElementLocated(status));
-        assertThat(console.getText()).startsWith("SUCCESS");
+        assertThat(console.getText()).startsWith("COMPILATION_ERROR");
     }
 }
