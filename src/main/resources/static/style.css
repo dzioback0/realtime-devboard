@@ -1,0 +1,28 @@
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px system-ui, sans-serif; color: #1d232a; background: #f3f4f6; }
+header, #toolbar { display: flex; gap: 12px; align-items: center; padding: 8px 16px; background: #fff; border-bottom: 1px solid #d9dde3; flex-wrap: wrap; }
+.spacer { flex: 1; }
+button { font: inherit; padding: 4px 10px; border: 1px solid #b8bec7; border-radius: 4px; background: #fff; cursor: pointer; }
+button:hover { background: #eef1f5; }
+button:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
+#live { color: #9ca3af; }
+#live.on { color: #16a34a; }
+#error { color: #b91c1c; }
+#board { position: relative; width: 100%; min-height: calc(100vh - 100px); overflow: auto;
+    background-image: radial-gradient(#cfd4db 1px, transparent 1px); background-size: 20px 20px; }
+
+.el { position: absolute; display: flex; flex-direction: column; background: #fff; border: 1px solid #b8bec7;
+    border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,.12); overflow: hidden; }
+.el.SHAPE { background: #fef3c7; border: 2px solid #d97706; }
+.bar { display: flex; gap: 6px; align-items: center; padding: 3px 6px; background: #e5e7eb; cursor: move; user-select: none; touch-action: none; }
+.bar .title { flex: 1; font-size: 12px; color: #4b5563; }
+.bar button { padding: 0 8px; }
+.el textarea { flex: 1; min-height: 0; width: 100%; border: 0; padding: 6px; resize: none; font: inherit; background: transparent; }
+.el.CODE textarea { font: 13px ui-monospace, Consolas, monospace; background: #1e1e2e; color: #e5e7eb; tab-size: 4; }
+.console { flex: 0 0 40%; overflow: auto; background: #111827; color: #e5e7eb; font: 12px ui-monospace, Consolas, monospace; padding: 4px 6px; border-top: 1px solid #374151; }
+.console .status { font-weight: bold; }
+.console .status.SUCCESS { color: #4ade80; }
+.console .status.RUNNING { color: #93c5fd; }
+.console .status.FAILED { color: #f87171; }
+.console pre { margin: 2px 0; white-space: pre-wrap; word-break: break-word; }
+.console .stderr { color: #fca5a5; }

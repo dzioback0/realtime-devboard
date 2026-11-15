@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="lt">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Realtime DevBoard</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="module" src="app.js"></script>
+</head>
+<body>
+<header>
+    <strong>Realtime DevBoard</strong>
+    <label>Lenta <select id="board-select" aria-label="Lenta"></select></label>
+    <button id="new-board" type="button">+ Nauja lenta</button>
+    <span class="spacer"></span>
+    <span id="live" title="Realaus laiko ryšys">●</span>
+    <span id="user"></span>
+    <a href="/logout">Atsijungti</a>
+</header>
+<nav id="toolbar">
+    <button type="button" data-add="TEXT">+ Tekstas</button>
+    <button type="button" data-add="SHAPE">+ Figūra</button>
+    <button type="button" data-add="CODE">+ Java kodas</button>
+    <span id="error" role="alert"></span>
+</nav>
+<main id="board" aria-label="Lenta"></main>
+</body>
+</html>
