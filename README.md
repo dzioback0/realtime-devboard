@@ -10,6 +10,7 @@ bloko Execution Console visiems tos lentos naudotojams.
 
 | Programa | Kam | Patikrinta versija |
 |---|---|---|
+| Git | projekto parsisiuntimas ir atnaujinimas | — |
 | Docker Desktop (Windows: WSL 2) arba Docker Engine + Compose v2 | paleidimas, izoliuotas vykdymas, PostgreSQL | Docker Desktop (per-user, WSL 2), Engine 29.9.3, Compose 5.7.0, cgroup v2 |
 | JDK 21+ | tik kūrimui / testams be Docker Compose | JDK 26.0.1 (kodas kompiliuojamas `release 21`) |
 | Node.js + npm | tik kliento kūrimui ir naršyklės testui | Node 24.21.0, npm 11.19.0 |
@@ -18,15 +19,37 @@ bloko Execution Console visiems tos lentos naudotojams.
 Java versija suvienodinta: Maven kompiliuoja Java 21 (`pom.xml`), Docker atvaizdai yra
 `eclipse-temurin:21`. Spring Boot 4.1.2.
 
-## Paleidimas (Docker Compose)
+Paleisti sistemą užtenka **Git ir Docker**. JDK, Node.js ir Chrome reikia tik kūrimui ir testams.
+
+## 1. Projekto parsisiuntimas
+
+Projektas paleidžiamas iš savo kompiuteryje turimos repozitorijos kopijos, todėl pirmiausia ją reikia nukopijuoti su Git:
 
 ```bash
-cp .env.example .env        # pakeiskite slaptažodžius .env faile (.env necommitinamas)
+git clone https://github.com/dzioback0/realtime-devboard.git
+cd realtime-devboard
+```
+
+Vėliau naujausius pakeitimus parsisiųskite komanda `git pull` ir paleiskite sistemą iš naujo su `docker compose up --build`.
+
+## 2. Paleidimas (Docker Compose)
+
+Komandas vykdykite projekto aplanke (`realtime-devboard`):
+
+```bash
+cp .env.example .env        # Windows PowerShell: copy .env.example .env
+                            # pakeiskite slaptažodžius .env faile (.env necommitinamas)
 docker compose up --build
 ```
 
 Programa: <http://localhost:8080>. Pirmas paleidimas parsiunčia `eclipse-temurin:21-jdk`
 (vykdymo smėlio dėžės atvaizdą), `postgres:17-alpine` ir sukompiliuoja aplikaciją.
+
+**Keli kompiuteriai.** Kiekvienas `docker compose up` sukuria **atskirą** duomenų bazę, todėl lentos tarp
+kompiuterių nesisinchronizuoja. Kad keli žmonės dirbtų toje pačioje lentoje, sistemą paleiskite viename
+kompiuteryje, o kiti tegul atsidaro `http://<to-kompiuterio-IP>:8080`. Kompiuteriai turi būti tame pačiame
+tinkle. Jei tinklas izoliuoja įrenginius (dažna bendrabučių, universitetų ir svečių Wi-Fi tinkluose), padeda,
+pavyzdžiui, Tailscale.
 
 ### Demonstracinės paskyros
 
