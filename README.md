@@ -10,7 +10,7 @@ bloko Execution Console visiems tos lentos naudotojams.
 
 | Programa | Kam | Patikrinta versija |
 |---|---|---|
-| Docker Desktop (Windows: WSL 2) arba Docker Engine + Compose v2 | paleidimas, izoliuotas vykdymas, PostgreSQL | **dar nepatikrinta** (kūrimo kompiuteryje Docker nebuvo įdiegtas) |
+| Docker Desktop (Windows: WSL 2) arba Docker Engine + Compose v2 | paleidimas, izoliuotas vykdymas, PostgreSQL | Docker Desktop (per-user, WSL 2), Engine 29.9.3, Compose 5.7.0, cgroup v2 |
 | JDK 21+ | tik kūrimui / testams be Docker Compose | JDK 26.0.1 (kodas kompiliuojamas `release 21`) |
 | Node.js + npm | tik kliento kūrimui ir naršyklės testui | Node 24.21.0, npm 11.19.0 |
 | Google Chrome | tik naršyklės E2E testui | įdiegta versija (Selenium Manager parenka tvarkyklę) |
@@ -70,16 +70,23 @@ npm --prefix frontend ci && npm --prefix frontend run build    # sugeneruoja src
 
 Be Docker integraciniai testai **nepraeina** (jie nepraleidžiami tyliai).
 
-### Tikri rezultatai (2026-11-15, Windows 11, JDK 26.0.1)
+### Tikri rezultatai (2026-11-15, Windows 11, JDK 26.0.1, Docker Desktop 29.9.3 / WSL 2)
 
 | Testai | Parašyta | Paleista | Praėjo |
 |---|---|---|---|
 | `./mvnw test`: 21 testas (DockerJavaExecutorTest 10, ExecutionServiceTest 3, BoardApiTest 7, kontekstas 1) | taip | taip | **taip, 21/21** |
-| `DockerSandboxIT` (13 testų) | taip | ne: Docker neįdiegtas | nežinoma |
-| `ExecutionApiIT` | taip | ne: Docker neįdiegtas | nežinoma |
-| `BrowserE2EIT` | taip | taip, be Docker | **ne**: prisijungimas, lenta ir WebSocket naršyklėje veikė, tačiau Run parodė `EXECUTION_ERROR: Docker is not available` (sąžininga klaida, ne fiktyvi sėkmė) |
+| `DockerSandboxIT`: 13 testų su tikrais konteineriais (81 s) | taip | taip | **taip, 13/13** |
+| `ExecutionApiIT`: API atsako vykdymo metu, po `TIMEOUT` vykdomas Hello | taip | taip | **taip, 1/1** |
+| `BrowserE2EIT`: Chrome, Run per UI, dvi sesijos | taip | taip | **taip, 1/1** |
 
-**Kol `./mvnw verify` nepraeina su Docker, izoliacijos ribos laikomos įgyvendintomis, bet nepatikrintomis.**
+Rankiniu būdu patikrinta per `docker compose up --build`:
+- `/api/health` atsako `UP`;
+- prisijungus kaip `alice`, Run ant Hello bloko grąžino `SUCCESS` ir `Hello` per 2,9 s;
+- svetima lenta grąžino 404;
+- po vykdymo neliko nė vieno užduoties konteinerio;
+- po `docker compose down` ir `up` rezultatas išliko PostgreSQL.
+
+Pastaba: ribos patikrintos Docker Desktop (WSL 2) aplinkoje; kitoje Linux / Docker konfigūracijoje testus reikėtų paleisti iš naujo.
 
 ## Code Execution Engine: saugumo ribos
 
@@ -129,7 +136,6 @@ Kata ar atskiros VM.
 
 ## Žinomi apribojimai
 
-- Izoliacijos integraciniai ir E2E testai dar nepaleisti su Docker (žr. lentelę aukščiau).
 - Java heap OOM atpažįstamas iš stderr. Programa gali tai suklastoti, bet paveiktų tik savo pačios rezultatą.
 - Atminties OOM aptikimui reikia cgroup v2 (Docker Desktop / šiuolaikinis Linux). Su cgroup v1 OOM kill būtų rodomas kaip `RUNTIME_ERROR` ir užrašomas į žurnalą.
 - Atšaukus naršyklės užklausą, serveris vykdymą užbaigia iki ribos; konteineris vis tiek pašalinamas.

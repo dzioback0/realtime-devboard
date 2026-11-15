@@ -110,7 +110,7 @@ Pradinės ribos iš užduoties nepakeistos. Papildomai pasirinkta `-Xmx128m`, ka
 | Sistema po ribų | `/api/health` vykdymo metu, naujas Hello po `TIMEOUT` | atsako < 2 s, `SUCCESS` |
 | Darbo erdvės | `alice` bando skaityti / keisti / vykdyti Beta lentą per REST ir WebSocket | 404 / atmestas handshake |
 
-Testų būsena (2026-11-15): `./mvnw test` paleista, praėjo 21/21. `DockerSandboxIT` ir `ExecutionApiIT` parašyti, bet **nepaleisti**, nes kūrimo kompiuteryje nebuvo Docker. `BrowserE2EIT` paleistas be Docker ir nepraėjo: UI dalis veikė, bet Run parodė `EXECUTION_ERROR`.
+Testų būsena (2026-11-15, Docker Desktop 29.9.3 / WSL 2, cgroup v2): visi scenarijai paleisti ir praėjo. `./mvnw test` praėjo 21/21; `./mvnw verify` praėjo papildomai `DockerSandboxIT` 13/13, `ExecutionApiIT` 1/1 ir `BrowserE2EIT` 1/1. Prieš įdiegiant Docker `BrowserE2EIT` nepraėjo, nes Run sąžiningai parodė `EXECUTION_ERROR: Docker is not available`.
 
 ## 4. Kokybės atributas
 
@@ -215,7 +215,7 @@ Prototipo kodą, testus ir šio dokumento atnaujinimą sugeneravo Claude Code pa
 | Mock testas izoliacijai įrodyti | atmesta | mock neįrodo resursų ribojimo, todėl naudojami tikri Docker integraciniai testai |
 | Atskiras vykdymo mikroservisas | atmesta | nereikalingas sudėtingumas; pasitikėjimo riba dokumentuota |
 
-Tikrinimas: `./mvnw test` paleista ir praėjo (21/21). Docker izoliacijos testai parašyti, bet kūrimo metu nepaleisti, nes Docker nebuvo įdiegtas. Šių testų rezultatų nepateikiu, kol jie nepaleisti.
+Tikrinimas: iš pradžių Docker nebuvo įdiegtas, todėl izoliacijos testai buvo tik parašyti. Įdiegus Docker Desktop, `./mvnw verify` praėjo visi 36 testai (21 vienetinis / API testas ir 15 integracinių / E2E testų). `docker compose up --build` paleistas ir patikrintas rankiniu būdu: Hello grąžino `SUCCESS`, o duomenys išliko po perkrovimo.
 
 ## 7. Tolesnių darbų planas
 
